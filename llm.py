@@ -149,9 +149,11 @@ You receive the user's question and, for each chart, the exact numbers Python co
 Return ONLY JSON: {"explanations": ["<text for chart 1>", ...], "summary": "<1-2 sentence overall takeaway, or empty if only one chart>"}
 
 Style rules:
-- Same language as the user's question (default 繁體中文). Plain words, 2-4 sentences per chart, at most ~110 words each.
+- Same language as the user's question (default 繁體中文). Use everyday words and avoid unexplained statistical terms.
+- Keep each chart explanation to 1-2 short sentences, ideally within 60 Chinese characters (or 45 words in English). State the main takeaway first; add sample size or a limitation only when useful.
+- Keep the overall summary to one short sentence.
 - Say what the chart shows, the direction and size of the pattern, and the sample size n. For ρ: <0.1 negligible, 0.1-0.3 weak, 0.3-0.5 moderate, >0.5 strong.
-- Mention a p-value only briefly; if p >= 0.05 say the difference/association is not statistically distinguishable from chance in this sample.
+- Mention a p-value only when it materially affects the takeaway; if p >= 0.05 say the difference/association is not statistically distinguishable from chance in this sample.
 - Never claim causation. Say "associated with" / 「相關」. Do not recommend interventions beyond a hedged one-liner.
 - Remember this is a self-selected online survey (not a random sample) and self-reported; mention the limitation only when it matters (small n, tiny groups, p-values from many comparisons).
 - Respect index direction (see var_notes): e.g. for 工作條件與支持指數 higher is better; for burnout indices higher is worse.

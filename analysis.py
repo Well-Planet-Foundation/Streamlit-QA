@@ -12,12 +12,25 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-from plotly.colors import qualitative, sample_colorscale
+from plotly.colors import sample_colorscale
 from scipy import stats as sps
 
 from data import Bundle, Var, short
 
 FONT = "Noto Sans TC, Microsoft JhengHei, PingFang TC, sans-serif"
+INK = "#3d4146"
+MUTED = "#70777b"
+ACCENT = "#4f837a"
+CHART_COLORS = (
+    ACCENT,
+    "#b65d73",
+    "#756096",
+    "#a77d2e",
+    "#4d7599",
+    "#66875d",
+    "#9c5c80",
+    "#447987",
+)
 MIN_CORR_N = 8
 MAX_GROUPS = 12
 CHART_TYPES = {"relationship", "distribution", "heatmap", "trend"}
@@ -69,14 +82,56 @@ def wrap(s, n=12):
 
 
 def _layout(fig, title, height=None, **kw):
-    fig.update_layout(
+    layout = dict(
         template="plotly_white",
-        title=dict(text=wrap(title, 34), x=0.0, xanchor="left", font=dict(size=16)),
-        font=dict(family=FONT, size=13),
-        margin=dict(l=10, r=20, t=70, b=50),
-        height=height,
-        **kw,
+        colorway=CHART_COLORS,
+        paper_bgcolor="rgba(255,255,255,0)",
+        plot_bgcolor="rgba(255,255,255,0)",
+        title=dict(
+            text=wrap(title, 34),
+            x=0.02,
+            xanchor="left",
+            y=0.97,
+            font=dict(size=16, color=INK, family=FONT),
+        ),
+        font=dict(family=FONT, size=13, color=INK),
+        margin=dict(l=22, r=24, t=66, b=52),
+        xaxis=dict(
+            automargin=True,
+            showgrid=False,
+            zeroline=False,
+            showline=False,
+            tickfont=dict(color=MUTED, size=11),
+            title=dict(font=dict(color=MUTED, size=12)),
+        ),
+        yaxis=dict(
+            automargin=True,
+            showgrid=False,
+            zeroline=False,
+            showline=False,
+            tickfont=dict(color=MUTED, size=11),
+            title=dict(font=dict(color=MUTED, size=12)),
+        ),
+        legend=dict(
+            bgcolor="rgba(255,255,255,0)",
+            borderwidth=0,
+            font=dict(color=INK, size=11),
+        ),
+        hoverlabel=dict(
+            bgcolor=INK,
+            bordercolor=INK,
+            font=dict(family=FONT, size=12, color="#ffffff"),
+        ),
+        height=min(height, 500) if height is not None else None,
     )
+    for axis in ("xaxis", "yaxis", "legend"):
+        if axis in kw:
+            options = kw.pop(axis)
+            if isinstance(options.get("title"), dict) and isinstance(layout[axis].get("title"), dict):
+                options["title"] = layout[axis]["title"] | options["title"]
+            layout[axis] = layout[axis] | options
+    layout.update(kw)
+    fig.update_layout(**layout)
     return fig
 
 
@@ -236,22 +291,29 @@ def _group_means(b, val: Var, by: Var, mask, min_n, spec, notes, fdesc) -> Chart
     title = _title_with_filter(title, fdesc)
     labels = [f"{r['group']}（n={r['n']}）" for r in rows]
     means = [r["mean"] for r in rows]
-    err = dict(type="data", array=[r["ci"] for r in rows], visible=True)
+    err = dict(type="data", array=[r["ci"] for r in rows], visible=True,
+               color="#82938f", thickness=1.4, width=4)
     base = 0 if val.kind == "composite" else 1
     txt = [f"{m:.1f}" if val.kind == "composite" else f"{m:.2f}" for m in means]
     fig = go.Figure()
     vert = g.ordered
     if vert:
         fig.add_trace(go.Bar(x=[wrap(l, 9) for l in labels], y=means, error_y=err, text=txt, textposition="outside",
-                             marker_color="#4C78A8", base=base, hovertemplate="%{x}<br>平均=%{y:.2f}<extra></extra>"))
-        fig.update_layout(yaxis=_val_axis(val), xaxis=dict(automargin=True))
-        _layout(fig, title, height=420)
+                             marker_color=ACCENT, marker_line_color="#ffffff", marker_line_width=1,
+                             textfont=dict(color=INK, size=11), base=base,
+                             hovertemplate="%{x}<br>平均=%{y:.2f}<extra></extra>"))
+        fig.update_layout(yaxis=_val_axis(val) | dict(showgrid=True, gridcolor="#e8efec"))
+        _layout(fig, title, height=340)
     else:
         fig.add_trace(go.Bar(y=[wrap(l, 16) for l in labels], x=means, error_x=err, orientation="h", text=txt,
-                             textposition="outside", marker_color="#4C78A8", base=base,
+                             textposition="outside", marker_color=ACCENT, marker_line_color="#ffffff",
+                             marker_line_width=1, textfont=dict(color=INK, size=11), base=base,
                              hovertemplate="%{y}<br>平均=%{x:.2f}<extra></extra>"))
-        fig.update_layout(xaxis=_val_axis(val), yaxis=dict(autorange="reversed", automargin=True))
-        _layout(fig, title, height=max(320, 90 + 52 * len(rows)))
+        fig.update_layout(
+            xaxis=_val_axis(val) | dict(showgrid=True, gridcolor="#e8efec"),
+            yaxis=dict(autorange="reversed", automargin=True),
+        )
+        _layout(fig, title, height=max(290, 76 + 42 * len(rows)))
     fig.update_layout(showlegend=False)
     notes.append("長條上的線為 95% 信賴區間（平均值的不確定範圍）")
     return ChartResult(spec, title, fig, st, "；".join(head) or "各組平均如圖", notes)
@@ -276,13 +338,28 @@ def _scatter(b, x: Var, y: Var, mask, spec, notes, fdesc) -> ChartResult:
     yy = d["y"] + (rng.uniform(-0.12, 0.12, n) if y.kind == "ordinal" else 0)
     xs = np.linspace(d["x"].min(), d["x"].max(), 20)
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=d["x"], y=yy, mode="markers", name="受訪者",
-                             marker=dict(size=7, opacity=0.45, color="#4C78A8")))
-    fig.add_trace(go.Scatter(x=xs, y=slope * xs + icpt, mode="lines", name="線性趨勢線",
-                             line=dict(color="#E45756", width=3)))
-    fig.update_layout(xaxis=_val_axis(x) | dict(title=dict(text=x.name)), yaxis=_val_axis(y) | dict(title=dict(text=y.name)),
-                      legend=dict(orientation="h", y=-0.2))
-    _layout(fig, title, height=460)
+    fig.add_trace(go.Scatter(
+        x=d["x"],
+        y=yy,
+        mode="markers",
+        name="受訪者",
+        marker=dict(size=8, opacity=0.58, color=CHART_COLORS[0], line=dict(width=1, color="#ffffff")),
+        hovertemplate=f"{x.name}=%{{x:.2f}}<br>{y.name}=%{{y:.2f}}<extra></extra>",
+    ))
+    fig.add_trace(go.Scatter(
+        x=xs,
+        y=slope * xs + icpt,
+        mode="lines",
+        name="線性趨勢線",
+        line=dict(color=CHART_COLORS[1], width=3),
+        hovertemplate="趨勢線<extra></extra>",
+    ))
+    fig.update_layout(
+        xaxis=_val_axis(x) | dict(title=dict(text=x.name), showgrid=True, gridcolor="#e8efec"),
+        yaxis=_val_axis(y) | dict(title=dict(text=y.name), showgrid=True, gridcolor="#e8efec"),
+        legend=dict(orientation="h", y=-0.22, x=0),
+    )
+    _layout(fig, title, height=360)
     notes.append("相關不等於因果：不能單憑此圖判斷誰影響誰")
     head = (f"Spearman ρ={rho:.2f}（{corr_strength(rho)}，{p_str(p)}，n={n}）；"
             f"{x.name}每增加 10 分，{y.name}平均約{'增加' if slope >= 0 else '減少'} {abs(slope * 10):.1f}")
@@ -320,21 +397,27 @@ def _crosstab(b, x: Var, y: Var, mask, min_n, spec, notes, fdesc) -> ChartResult
         notes.append(f"樣本數偏少（n={n_total}），結果請保守解讀")
     title = _title_with_filter(spec.get("title") or f"{x.name} × {y.name}", fdesc)
     if y.kind == "ordinal":
-        cols = sample_colorscale("Blues", [0.15 + 0.8 * i / max(1, len(pct.columns) - 1) for i in range(len(pct.columns))])
+        cols = sample_colorscale(
+            [[0, "#5d8c80"], [1, "#3d746b"]],
+            [i / max(1, len(pct.columns) - 1) for i in range(len(pct.columns))],
+        )
     else:
-        pal = qualitative.Set2 + qualitative.Pastel1
+        pal = CHART_COLORS
         cols = [pal[i % len(pal)] for i in range(len(pct.columns))]
     fig = go.Figure()
     ylabels = [wrap(f"{r}（n={int(tab.loc[r].sum())}）", 16) for r in pct.index]
     for c, col in zip(pct.columns, cols):
         vals = pct[c].values
         fig.add_trace(go.Bar(y=ylabels, x=vals, name=short(c, 16), orientation="h", marker_color=col,
+                             marker_line_color="#ffffff", marker_line_width=1,
                              text=[f"{v:.0f}%" if v >= 7 else "" for v in vals], textposition="inside",
+                             insidetextfont=dict(color="#ffffff", size=11),
                              hovertemplate="%{y}<br>" + str(c) + "：%{x:.1f}%<extra></extra>"))
-    fig.update_layout(barmode="stack", xaxis=dict(range=[0, 100], title=dict(text="該組內的百分比（%）")),
+    fig.update_layout(barmode="stack", xaxis=dict(range=[0, 100], title=dict(text="該組內的百分比（%）"),
+                                                 showgrid=True, gridcolor="#e8efec"),
                       yaxis=dict(autorange="reversed", automargin=True),
-                      legend=dict(orientation="h", y=-0.25, title=dict(text=short(y.name, 24))))
-    _layout(fig, title, height=max(340, 140 + 56 * len(pct.index)))
+                      legend=dict(orientation="h", y=-0.25, x=0, title=dict(text=short(y.name, 24))))
+    _layout(fig, title, height=max(300, 118 + 44 * len(pct.index)))
     return ChartResult(spec, title, fig, st, "；".join(head) or "各組分布如圖", notes)
 
 
@@ -363,13 +446,21 @@ def _distribution(b, spec, min_n, notes, fdesc, mask) -> ChartResult:
         s = b.num[v.name][mask].dropna()
         if len(s) < 5:
             raise PlanError("有效樣本太少")
-        fig.add_trace(go.Histogram(x=s, xbins=dict(start=0, end=100, size=10), marker_color="#4C78A8"))
-        fig.update_layout(xaxis=dict(range=[0, 100], title=dict(text=f"{v.name}（0–100）")), yaxis=dict(title=dict(text="人數")),
+        fig.add_trace(go.Histogram(
+            x=s,
+            xbins=dict(start=0, end=100, size=10),
+            marker_color=ACCENT,
+            marker_line_color="#ffffff",
+            marker_line_width=1,
+            hovertemplate="分數：%{x}<br>人數：%{y}<extra></extra>",
+        ))
+        fig.update_layout(xaxis=dict(range=[0, 100], title=dict(text=f"{v.name}（0–100）")),
+                          yaxis=dict(title=dict(text="人數"), showgrid=True, gridcolor="#e8efec"),
                           bargap=0.05)
         st = dict(type="distribution", var=v.name, n=int(len(s)), mean=_f(s.mean(), 1), median=_f(s.median(), 1),
                   sd=_f(s.std(), 1), q25=_f(s.quantile(.25), 1), q75=_f(s.quantile(.75), 1))
         head = f"平均 {s.mean():.1f}、中位數 {s.median():.1f}、標準差 {s.std():.1f}（n={len(s)}）"
-        _layout(fig, title, height=380)
+        _layout(fig, title, height=320)
     else:
         g = get_groups(b, v, mask, 1, notes, cap=15)
         n_resp = _n_unique(g.s)
@@ -382,14 +473,22 @@ def _distribution(b, spec, min_n, notes, fdesc, mask) -> ChartResult:
         head = f"共 {n_resp} 人作答；最多的是「{short(order[int(np.argmax(vals))], 20)}」（{max(pct):.0f}%）"
         text = [f"{c}（{p:.0f}%）" for c, p in zip(vals, pct)]
         if g.ordered:
-            fig.add_trace(go.Bar(x=[wrap(o, 9) for o in order], y=vals, text=text, textposition="outside", marker_color="#4C78A8"))
-            fig.update_layout(yaxis=dict(title=dict(text="人數")))
-            _layout(fig, title, height=400)
+            fig.add_trace(go.Bar(
+                x=[wrap(o, 9) for o in order], y=vals, text=text, textposition="outside",
+                marker_color=ACCENT, marker_line_color="#ffffff", marker_line_width=1,
+                textfont=dict(color=INK, size=11),
+            ))
+            fig.update_layout(yaxis=dict(title=dict(text="人數"), showgrid=True, gridcolor="#e8efec"))
+            _layout(fig, title, height=340)
         else:
             fig.add_trace(go.Bar(y=[wrap(o, 18) for o in order], x=vals, orientation="h", text=text, textposition="outside",
-                                 marker_color="#4C78A8"))
-            fig.update_layout(yaxis=dict(autorange="reversed", automargin=True), xaxis=dict(title=dict(text="人數")))
-            _layout(fig, title, height=max(320, 100 + 42 * len(order)))
+                                 marker_color=ACCENT, marker_line_color="#ffffff", marker_line_width=1,
+                                 textfont=dict(color=INK, size=11)))
+            fig.update_layout(
+                yaxis=dict(autorange="reversed", automargin=True),
+                xaxis=dict(title=dict(text="人數"), showgrid=True, gridcolor="#e8efec"),
+            )
+            _layout(fig, title, height=max(290, 86 + 34 * len(order)))
         if g.overlap:
             notes.append("複選題：百分比是「選了該項的人數 ÷ 作答人數」，加總會超過 100%")
     fig.update_layout(showlegend=False)
@@ -427,14 +526,16 @@ def _heatmap(b, spec, min_n, notes, fdesc, mask) -> ChartResult:
               n_range=[int(N[np.triu_indices(k, 1)].min()), int(N[np.triu_indices(k, 1)].max())])
     labels = [wrap(short(v.name, 14), 7) for v in vs]
     text = [["" if np.isnan(R[i, j]) else f"{R[i, j]:.2f}" for j in range(k)] for i in range(k)]
-    fig = go.Figure(go.Heatmap(z=R, x=labels, y=labels, zmin=-1, zmax=1, colorscale="RdBu", text=text,
+    fig = go.Figure(go.Heatmap(z=R, x=labels, y=labels, zmin=-1, zmax=1, zmid=0,
+                               colorscale=[[0, "#c77f91"], [0.5, "#f7f5f2"], [1, "#6eaaa0"]], text=text,
+                               colorbar=dict(title=dict(text="Spearman ρ"), thickness=14, outlinewidth=0),
                                texttemplate="%{text}", hovertemplate="%{y} × %{x}<br>ρ=%{z:.2f}<extra></extra>"))
     fig.update_layout(yaxis=dict(autorange="reversed", automargin=True), xaxis=dict(side="bottom"))
     title = _title_with_filter(spec.get("title") or "變數間的相關矩陣（Spearman）", fdesc)
-    _layout(fig, title, height=max(420, 120 + 70 * k))
+    _layout(fig, title, height=max(350, 100 + 56 * k))
     top = pairs[0] if pairs else None
     head = (f"最強的一組是「{short(top['a'], 14)}」與「{short(top['b'], 14)}」，ρ={top['rho']}（n={top['n']}）" if top else "")
-    notes.append("紅色＝負相關、藍色＝正相關；僅供探索，多組比較未校正顯著性")
+    notes.append("粉紅色＝負相關、青綠色＝正相關；僅供探索，多組比較未校正顯著性")
     return ChartResult(spec, title, fig, st, head, notes)
 
 
@@ -463,12 +564,22 @@ def _trend(b, spec, min_n, notes, fdesc, mask) -> ChartResult:
                     es.append(1.96 * x.std(ddof=1) / math.sqrt(len(x))); ns.append(len(x))
                     table.append(dict(group=gname, year=y, mean=_f(x.mean()), ci95=_f(es[-1]), n=len(x)))
             if xs:
-                fig.add_trace(go.Scatter(x=xs, y=ys, mode="lines+markers", name=short(gname, 16),
-                                         error_y=dict(type="data", array=es, visible=True)))
+                fig.add_trace(go.Scatter(
+                    x=xs,
+                    y=ys,
+                    mode="lines+markers",
+                    name=short(gname, 16),
+                    marker=dict(size=8, line=dict(width=1, color="#ffffff")),
+                    line=dict(width=2.5),
+                    error_y=dict(type="data", array=es, visible=True, color="#9aa9a5", thickness=1),
+                ))
         if not table:
             raise PlanError(f"各年度的有效樣本都不足 {min_n} 人")
-        fig.update_layout(yaxis=_val_axis(v), xaxis=dict(type="category", title=dict(text="年度")),
-                          legend=dict(orientation="h", y=-0.2))
+        fig.update_layout(
+            yaxis=_val_axis(v) | dict(showgrid=True, gridcolor="#e8efec"),
+            xaxis=dict(type="category", title=dict(text="年度")),
+            legend=dict(orientation="h", y=-0.2, x=0),
+        )
         st = dict(type="trend", var=v.name, by=by.name if by else None, table=table, n_total=int(d.index.nunique()))
         first, last = b.years[0], b.years[-1]
         a = [t["mean"] for t in table if t["year"] == first and t["group"] == table[0]["group"]]
@@ -491,14 +602,25 @@ def _trend(b, spec, min_n, notes, fdesc, mask) -> ChartResult:
                     share = 100 * d[(d["yr"] == y) & (d["g"] == gname)].index.nunique() / nd
                     ys.append((y, share)); table.append(dict(option=gname, year=y, percent=_f(share, 1), n=nd))
             if ys:
-                fig.add_trace(go.Scatter(x=[t[0] for t in ys], y=[t[1] for t in ys], mode="lines+markers", name=short(gname, 16)))
+                fig.add_trace(go.Scatter(
+                    x=[t[0] for t in ys],
+                    y=[t[1] for t in ys],
+                    mode="lines+markers",
+                    name=short(gname, 16),
+                    marker=dict(size=8, line=dict(width=1, color="#ffffff")),
+                    line=dict(width=2.5),
+                ))
         if not table:
             raise PlanError(f"各年度的有效樣本都不足 {min_n} 人")
-        fig.update_layout(yaxis=dict(title=dict(text="佔該年度作答者的比例（%）"), range=[0, 100]),
-                          xaxis=dict(type="category", title=dict(text="年度")), legend=dict(orientation="h", y=-0.25))
+        fig.update_layout(
+            yaxis=dict(title=dict(text="佔該年度作答者的比例（%）"), range=[0, 100],
+                       showgrid=True, gridcolor="#e8efec"),
+            xaxis=dict(type="category", title=dict(text="年度")),
+            legend=dict(orientation="h", y=-0.25, x=0),
+        )
         st = dict(type="trend", var=v.name, table=table)
         head = "各選項的年度比例如圖"
-    _layout(fig, title, height=440)
+    _layout(fig, title, height=360)
     return ChartResult(spec, title, fig, st, head, notes)
 
 
